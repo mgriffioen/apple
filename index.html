@@ -197,13 +197,13 @@
 
         if (index === 0) {
           el.classList.add("first");
-          el.textContent = `🥇 1st: ${name} (${score} pts)`;
+          el.textContent = `🥇 1st: ${name} (${score} pts) 🥇`;
         } else if (index === 1) {
           el.classList.add("second");
-          el.textContent = `🥈 2nd: ${name} (${score} pts)`;
+          el.textContent = `🥈 2nd: ${name} (${score} pts) 🥈`;
         } else if (index === 2) {
           el.classList.add("third");
-          el.textContent = `🥉 3rd: ${name} (${score} pts)`;
+          el.textContent = `🥉 3rd: ${name} (${score} pts) 🥉`;
         } else {
           el.classList.add("other");
           el.textContent = `${index + 1}th: ${name} (${score} pts)`;
