@@ -4,6 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Apple Tasting Competition</title>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBDk6qFElyOTBFgSPnSHCX1t0RAUuOX_hU",
+      authDomain: "apple-tasting.firebaseapp.com",
+      projectId: "apple-tasting",
+      storageBucket: "apple-tasting.appspot.com",
+      messagingSenderId: "511787808121",
+      appId: "1:511787808121:web:ccb6529155caa12aa0eba8",
+      measurementId: "G-65W20TN30W"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+  </script>
+
   <style>
     body {
       font-family: "Helvetica Neue", sans-serif;
@@ -27,9 +47,11 @@
       max-width: 500px;
     }
 
-    select {
+    select, input {
       padding: 5px;
       margin: 5px;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     button {
@@ -40,6 +62,7 @@
       border-radius: 8px;
       cursor: pointer;
       margin-top: 10px;
+      width: 100%;
     }
 
     button:hover {
@@ -61,31 +84,13 @@
       animation: fadeInUp 0.6s ease forwards;
     }
 
-    .first {
-      font-size: 1.8em;
-      font-weight: bold;
-    }
-
-    .second {
-      font-size: 1.5em;
-      font-weight: 600;
-    }
-
-    .third {
-      font-size: 1.3em;
-      font-weight: 500;
-    }
-
-    .other {
-      font-size: 0.9em;
-      color: #555;
-    }
+    .first { font-size: 1.8em; font-weight: bold; }
+    .second { font-size: 1.5em; font-weight: 600; }
+    .third { font-size: 1.3em; font-weight: 500; }
+    .other { font-size: 0.9em; color: #555; }
 
     @keyframes fadeInUp {
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
@@ -93,8 +98,8 @@
   <h1>🍏 Apple Tasting Competition 🍏</h1>
 
   <div class="apple-theme">
-    <label for="participant">Participant:</label>
-    <select id="participant"></select><br />
+    <label for="voterName">Your Name:</label>
+    <input type="text" id="voterName" placeholder="Enter your name" /><br />
 
     <label>1st Place:</label>
     <select class="rank" data-rank="1"></select><br />
@@ -104,6 +109,7 @@
     <select class="rank" data-rank="3"></select><br />
 
     <button onclick="submitRanking()">Submit Rankings</button>
+    <button onclick="resetCompetition()" style="background:#888;margin-top:5px;">Reset Competition</button>
   </div>
 
   <div class="results">
@@ -115,27 +121,16 @@
 
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script>
-    const participants = [
-      "Dusty", "Mark", "Erik", "Carl", "Benedict", "Paul", "Sean", "Brandon"
+    const appleVarietals = [
+      "Cosmic Crisp", "Fuji", "Honeycrisp", "Gala", "Pink Lady", "McIntosh", "Envy", "Golden Delicious"
     ];
 
-    const scores = {};
-    participants.forEach(p => (scores[p] = 0));
-    const voted = new Set();
-
-    const participantSelect = document.getElementById("participant");
+    const voterInput = document.getElementById("voterName");
     const rankSelects = document.querySelectorAll(".rank");
     const leaderboard = document.getElementById("leaderboard");
     let previousFirstPlace = null;
 
-    participants.forEach(p => {
-      const opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p;
-      participantSelect.appendChild(opt);
-    });
-
-    function updateRankDropdowns() {
+    function populateRankDropdowns() {
       rankSelects.forEach(sel => {
         sel.innerHTML = "";
         const placeholder = document.createElement("option");
@@ -144,94 +139,109 @@
         placeholder.selected = true;
         sel.appendChild(placeholder);
 
-        participants.forEach(p => {
-          if (p !== participantSelect.value) {
-            const opt = document.createElement("option");
-            opt.value = p;
-            opt.textContent = p;
-            sel.appendChild(opt);
-          }
+        appleVarietals.forEach(a => {
+          const opt = document.createElement("option");
+          opt.value = a;
+          opt.textContent = a;
+          sel.appendChild(opt);
         });
       });
     }
 
-    participantSelect.addEventListener("change", updateRankDropdowns);
-
-    function submitRanking() {
-      const voter = participantSelect.value;
-      if (voted.has(voter)) {
-        alert("You have already voted!");
-        return;
-      }
+    async function submitRanking() {
+      const voter = voterInput.value.trim();
+      if (!voter) return alert("Please enter your name.");
 
       const selected = Array.from(rankSelects).map(sel => sel.value);
-      if (new Set(selected).size !== 3) {
-        alert("Each place must be a unique apple!");
-        return;
+      if (new Set(selected).size !== 3 || selected.includes("")) {
+        return alert("Each place must be a unique apple!");
       }
 
-      scores[selected[0]] += 3;
-      scores[selected[1]] += 2;
-      scores[selected[2]] += 1;
-      voted.add(voter);
-      updateLeaderboard();
+      const voterRef = db.collection("voters").doc(voter);
+      const voterSnap = await voterRef.get();
+      if (voterSnap.exists) {
+        return alert("You have already voted!");
+      }
+
+      await voterRef.set({ voted: true });
+      const scoresRef = db.collection("scores");
+      const batch = db.batch();
+
+      [[selected[0], 3], [selected[1], 2], [selected[2], 1]].forEach(([apple, pts]) => {
+        const ref = scoresRef.doc(apple);
+        batch.set(ref, { name: apple, score: firebase.firestore.FieldValue.increment(pts) }, { merge: true });
+      });
+
+      await batch.commit();
     }
 
-    function updateLeaderboard() {
-      leaderboard.innerHTML = "";
-      const sorted = Object.entries(scores)
-        .sort((a, b) => b[1] - a[1])
-        .filter(([_, score]) => score > 0);
+    function listenToScores() {
+      db.collection("scores").onSnapshot(snap => {
+        const entries = [];
+        snap.forEach(doc => entries.push([doc.id, doc.data().score || 0]));
 
-      if (sorted.length === 0) return;
+        const sorted = entries.sort((a, b) => b[1] - a[1]).filter(([_, score]) => score > 0);
+        leaderboard.innerHTML = "";
 
-      const newFirstPlace = sorted[0]?.[0];
-      if (previousFirstPlace && newFirstPlace !== previousFirstPlace) {
-        triggerConfetti();
-      }
-      previousFirstPlace = newFirstPlace;
-
-      sorted.forEach(([name, score], index) => {
-        const el = document.createElement("div");
-        el.className = "leaderboard-entry";
-
-        if (index === 0) {
-          el.classList.add("first");
-          el.textContent = `🥇 1st: ${name} (${score} pts) 🥇`;
-        } else if (index === 1) {
-          el.classList.add("second");
-          el.textContent = `🥈 2nd: ${name} (${score} pts) 🥈`;
-        } else if (index === 2) {
-          el.classList.add("third");
-          el.textContent = `🥉 3rd: ${name} (${score} pts) 🥉`;
-        } else {
-          el.classList.add("other");
-          el.textContent = `${index + 1}th: ${name} (${score} pts)`;
+        const newFirstPlace = sorted[0]?.[0];
+        if (previousFirstPlace && newFirstPlace !== previousFirstPlace) {
+          triggerConfetti();
         }
+        previousFirstPlace = newFirstPlace;
 
-        leaderboard.appendChild(el);
+        sorted.forEach(([name, score], index) => {
+          const el = document.createElement("div");
+          el.className = "leaderboard-entry";
+
+          if (index === 0) {
+            el.classList.add("first");
+            el.textContent = `🥇 1st: ${name} (${score} pts)`;
+          } else if (index === 1) {
+            el.classList.add("second");
+            el.textContent = `🥈 2nd: ${name} (${score} pts)`;
+          } else if (index === 2) {
+            el.classList.add("third");
+            el.textContent = `🥉 3rd: ${name} (${score} pts)`;
+          } else {
+            el.classList.add("other");
+            el.textContent = `${index + 1}th: ${name} (${score} pts)`;
+          }
+
+          leaderboard.appendChild(el);
+        });
       });
     }
 
+    async function resetCompetition() {
+      if (!confirm("Are you sure you want to reset all scores and votes?")) return;
+
+      const scoreDocs = await db.collection("scores").get();
+      const voterDocs = await db.collection("voters").get();
+      const batch = db.batch();
+
+      scoreDocs.forEach(doc => batch.delete(doc.ref));
+      voterDocs.forEach(doc => batch.delete(doc.ref));
+
+      await batch.commit();
+      leaderboard.innerHTML = "<p>Leaderboard has been reset.</p>";
+    }
+
     function triggerConfetti() {
-      const duration = 2 * 1000;
+      const duration = 2000;
       const animationEnd = Date.now() + duration;
       const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 999 };
-      const interval = setInterval(function () {
+      const interval = setInterval(() => {
         const timeLeft = animationEnd - Date.now();
-        if (timeLeft <= 0) {
-          return clearInterval(interval);
-        }
-        const particleCount = 50 * (timeLeft / duration);
+        if (timeLeft <= 0) return clearInterval(interval);
         confetti(Object.assign({}, defaults, {
-          particleCount,
+          particleCount: 50 * (timeLeft / duration),
           origin: { x: Math.random(), y: Math.random() - 0.2 }
         }));
       }, 250);
     }
 
-    updateRankDropdowns();
-    updateLeaderboard();
+    populateRankDropdowns();
+    listenToScores();
   </script>
 </body>
 </html>
